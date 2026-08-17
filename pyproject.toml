@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-rules"
+version = "0.1.0"
+description = "1つのマスタから Claude Code / Cursor / GitHub Copilot 向けのコーディング規約を生成し、CIで更新漏れを検知する"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "ben-saito" }]
+keywords = ["claude-code", "cursor", "copilot", "ai", "coding-agent", "codegen"]
+dependencies = ["pyyaml>=6.0"]
+
+[project.urls]
+Homepage = "https://github.com/ben-saito/ai-rules"
+
+[project.scripts]
+ai-rules = "ai_rules.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ai_rules"]

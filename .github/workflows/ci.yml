@@ -1,0 +1,20 @@
+name: CI
+
+on: [pull_request, push]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+
+      # 生成 → 検証が通ることを確認する
+      - run: |
+          mkdir -p /tmp/smoke && cd /tmp/smoke
+          ai-rules init
+          ai-rules build
+          ai-rules check
