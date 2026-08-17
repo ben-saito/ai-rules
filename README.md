@@ -1,7 +1,7 @@
 # ai-rules
 
 1つのマスタから **Claude Code / Cursor / GitHub Copilot** 向けのコーディング規約を生成し、
-更新漏れを **CIの赤** で検知する CLI です。
+更新漏れを **CIの赤** で検知する、Python 製の CLI です。
 
 ```bash
 pip install git+https://github.com/ben-saito/ai-rules
@@ -12,18 +12,32 @@ pip install git+https://github.com/ben-saito/ai-rules
 
 ---
 
-## 先に、これが要らないケースを書きます
+## 先に、これを使わないほうがいいケースを書きます
 
-**規約の生成そのものは [`dyoshikawa/rulesync`](https://github.com/dyoshikawa/rulesync)（★1.3k）が既に成熟しています。**
-Claude Code / Cursor / Cline / Copilot に対応し、rules だけでなく mcp・commands・subagents・skills・hooks・permissions まで生成します。
-**生成が目的なら、まず rulesync を検討してください。**
+### 1. 規約を生成したいだけなら → [`dyoshikawa/rulesync`](https://github.com/dyoshikawa/rulesync)
 
-**Claude Code には `.claude/rules/` という公式の仕組みがあります。**
+このアプローチの本命は rulesync（★1.3k）です。**まずこちらを検討してください。**
+
+| | rulesync | ai-rules（これ） |
+|---|---|---|
+| 対応ツール | Claude Code / Cursor / Cline / Copilot ほか | Claude Code / Cursor / Copilot |
+| 生成対象 | rules, ignore, mcp, commands, subagents, skills, hooks, permissions | **rules のみ** |
+| 実行環境 | Node.js | **Python（依存は PyYAML 1つ）** |
+| 安定性の測定 | なし | `stability` あり |
+
+対応範囲で勝てる要素はありません。**このツールが要るのは次の2つだけです。**
+
+- **リポジトリに Node を持ち込みたくない**（Python プロジェクトの CI に `npx` を足したくない、など）
+- **`stability`（規約の効果を正解データなしで測る）を使いたい**
+
+### 2. Claude Code しか使っていないなら → 公式の `.claude/rules/`
+
 `paths:` フロントマターでディレクトリごとに規約をスコープできる、よくできた機能です。
+**単一ツール運用なら、生成の仕組みそのものが不要です。**
 
-**Claude Code しか使っていないなら、公式機能をそのまま使ってください。このツールは要りません。**
+---
 
-このツールの前提は、**複数のAIコーディングツールが混在している**環境です。
+このツールの前提は、**複数のAIコーディングツールが混在していて、かつ Python で完結させたい**環境です。
 
 | ツール | 置き場所 | フォーマット | スコープ |
 |---|---|---|---|
@@ -116,9 +130,14 @@ jobs:
 
 ---
 
-## おまけ: 出力の安定性を測る
+## 出力の安定性を測る（`stability`）
 
-規約を整えた効果を、正解データなしで測るコマンドも入っています。
+**規約を整えたあと、それが効いたかどうかを測る手段がありません。** ここを埋めるコマンドです。
+
+規約の生成ツールは、規約が*配られたこと*は保証しますが、*効いたこと*は保証しません。
+`stability` は正解データなしで、出力がブレていないかだけを見ます。
+
+`ai-rules` を規約生成に使っていなくても、このコマンドだけ単独で使えます（`rules.yml` を必要としません）。
 
 ```bash
 ai-rules stability --runs 3 -- your-review-command --format json
