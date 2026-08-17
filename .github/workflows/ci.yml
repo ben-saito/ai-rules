@@ -13,8 +13,41 @@ jobs:
       - run: pip install -e .
 
       # 生成 → 検証が通ることを確認する
-      - run: |
-          mkdir -p /tmp/smoke && cd /tmp/smoke
+      - name: build と check が通る
+        run: |
+          mkdir -p /tmp/smoke/src/domain && cd /tmp/smoke
           ai-rules init
           ai-rules build
           ai-rules check
+
+      # path が実在しない層を check が落とすことを確認する（最も静かに壊れるパターン）
+      - name: path 不在で check が落ちる
+        run: |
+          rm -rf /tmp/missing && mkdir -p /tmp/missing && cd /tmp/missing
+          ai-rules init
+          ai-rules build
+          if ai-rules check; then echo "check が落ちるべきところで通った"; exit 1; fi
+
+      # レイヤーをリネームしたときに旧生成物が消えることを確認する
+      - name: リネーム後の残骸を build が消す
+        run: |
+          rm -rf /tmp/rename && mkdir -p /tmp/rename/src/domain && cd /tmp/rename
+          ai-rules init
+          ai-rules build
+          test -f .claude/rules/domain.md
+          sed -i 's/^  domain:/  core:/' ai-rules/rules.yml
+          ai-rules build
+          test -f .claude/rules/core.md
+          if [ -f .claude/rules/domain.md ]; then echo "旧生成物が残っている"; exit 1; fi
+          ai-rules check
+
+      # 指摘0件を「安定」と読ませない（終了コード3）
+      - name: stability が 0 件を 3 で返す
+        run: |
+          cd /tmp
+          echo '{"findings": []}' > empty.json
+          set +e
+          ai-rules stability --runs 2 -- cat empty.json
+          code=$?
+          set -e
+          test "$code" -eq 3
