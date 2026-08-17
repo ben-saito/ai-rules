@@ -14,16 +14,17 @@ pip install git+https://github.com/ben-saito/ai-rules
 
 ## 先に、これを使わないほうがいいケースを書きます
 
-### 1. 規約を生成したいだけなら → [`dyoshikawa/rulesync`](https://github.com/dyoshikawa/rulesync)
+### 1. 規約を生成したいだけなら → [`intellectronica/ruler`](https://github.com/intellectronica/ruler) か [`dyoshikawa/rulesync`](https://github.com/dyoshikawa/rulesync)
 
-このアプローチの本命は rulesync（★1.3k）です。**まずこちらを検討してください。**
+**この用途は既に解決済みです。まず既存ツールを検討してください。**
 
-| | rulesync | ai-rules（これ） |
-|---|---|---|
-| 対応ツール | Claude Code / Cursor / Cline / Copilot ほか | Claude Code / Cursor / Copilot |
-| 生成対象 | rules, ignore, mcp, commands, subagents, skills, hooks, permissions | **rules のみ** |
-| 実行環境 | Node.js | **Python（依存は PyYAML 1つ）** |
-| 安定性の測定 | なし | `stability` あり |
+| | ruler | rulesync | ai-rules（これ） |
+|---|---|---|---|
+| スター | ★2.8k | ★1.3k | — |
+| 対応ツール | 20以上 | Claude Code / Cursor / Cline / Copilot ほか | Claude Code / Cursor / Copilot |
+| 生成対象 | rules, ignore, mcp | rules, ignore, mcp, commands, subagents, skills, hooks, permissions | **rules のみ** |
+| 実行環境 | Node.js | Node.js | **Python（依存は PyYAML 1つ）** |
+| 安定性の測定 | なし | なし | `stability` あり |
 
 対応範囲で勝てる要素はありません。**このツールが要るのは次の2つだけです。**
 
@@ -39,14 +40,17 @@ pip install git+https://github.com/ben-saito/ai-rules
 
 このツールの前提は、**複数のAIコーディングツールが混在していて、かつ Python で完結させたい**環境です。
 
-| ツール | 置き場所 | フォーマット | スコープ |
-|---|---|---|---|
-| Claude Code | `.claude/rules/*.md` | `paths:` フロントマター | ディレクトリ単位 |
-| Cursor | `.cursor/rules/*.mdc` | `globs:` フロントマター | ディレクトリ単位 |
-| GitHub Copilot | `.github/copilot-instructions.md` | 単一ファイル | **スコープ機能なし** |
+| ツール | 置き場所 | スコープの指定 |
+|---|---|---|
+| Claude Code | `.claude/rules/<層>.md` | `paths:` フロントマター |
+| Cursor | `.cursor/rules/<層>.mdc` | `globs:` フロントマター |
+| GitHub Copilot | `.github/instructions/<層>.instructions.md` | `applyTo:` フロントマター |
 
-置き場所もフォーマットもスコープの有無も全部違います。
+3ツールともディレクトリ単位のスコープを持っていますが、**置き場所も拡張子もキー名も全部違います。**
 同じ規約を3箇所に手で書けば、**必ずズレます。** そしてズレても誰も気づきません。
+
+Copilot だけは共通規約の置き場所が別で、`.github/copilot-instructions.md` に出します
+（このファイルにはスコープがなく、リポジトリ全体に効きます）。
 
 やることは2つだけです。
 
@@ -68,7 +72,7 @@ ai-rules init
 ```yaml
 outputs:
   claude: true
-  cursor: true
+  cursor: true    # 雛形では false。使っているツールだけ true にする
   copilot: false
 
 # 全レイヤーに配布される共通規約
@@ -99,6 +103,16 @@ generated: .cursor/rules/domain.mdc
 既存の `.claude/rules/` や `.cursor/rules/` は**上書きされます。**
 手で書いた内容は先に `rules.yml` へ移してください。
 
+レイヤーをリネーム・削除すると、旧ファイルは `build` が消します。
+
+```
+removed: .claude/rules/domain.md（マスタに対応するレイヤーがありません）
+```
+
+消さずに残すと、**古い規約と新しい規約が同時にロードされます。**
+矛盾する指示が両方効くので、この削除は安全側の挙動ではなく必須の挙動です。
+（削除対象は先頭に `DO NOT EDIT` マーカーを持つファイルだけです。手書きのファイルは消しません。）
+
 生成物は `.gitignore` に**入れません。** エージェントは実行時にファイルシステムを読むので、
 リポジトリに存在している必要があります。
 
@@ -108,7 +122,14 @@ generated: .cursor/rules/domain.mdc
 ai-rules check
 ```
 
-`rules.yml` を直して再生成し忘れると、終了コード **1** で落ちます。
+終了コード **1** で落ちるのは次の3つです。
+
+1. `rules.yml` を直して再生成し忘れた（生成物が古い、または無い）
+2. マスタに対応するレイヤーがない生成物が残っている（リネーム・削除の取りこぼし）
+3. `rules.yml` の `path` が実在しない
+
+3つ目は**最も静かに壊れるパターン**です。ディレクトリを移動するとグロブが一致しなくなりますが、
+生成は成功したままで、規約だけが一度も適用されなくなります。これはエラーになりません。だから CI で見ます。
 
 ```yaml
 # .github/workflows/ai-rules.yml
@@ -132,10 +153,11 @@ jobs:
 
 ## 出力の安定性を測る（`stability`）
 
-**規約を整えたあと、それが効いたかどうかを測る手段がありません。** ここを埋めるコマンドです。
-
 規約の生成ツールは、規約が*配られたこと*は保証しますが、*効いたこと*は保証しません。
 `stability` は正解データなしで、出力がブレていないかだけを見ます。
+
+繰り返し実行してブレを見る仕組み自体は既にあります（LangSmith の `num_repetitions`、promptfoo の `--repeat` など）。
+ただしどちらも評価基盤の導入が前提です。`stability` は**評価基盤なしで、既存のレビューコマンドにそのまま被せる**ことだけを狙っています。
 
 `ai-rules` を規約生成に使っていなくても、このコマンドだけ単独で使えます（`rules.yml` を必要としません）。
 
@@ -147,8 +169,12 @@ ai-rules stability --runs 3 -- your-review-command --format json
 正解データを用意しないので導入コストがほぼゼロです。
 
 `--` のあとは任意のコマンドで構いません。
-標準出力に `[{...}]` または `{"findings": [{...}]}` の形で JSON を吐けば動きます。
-各要素は `file` / `severity` / `category` を持っていることを期待します。
+標準出力に `[{...}]` か、`findings` / `issues` / `results` / `violations` / `problems` / `diagnostics`
+のいずれかのキーに配列を持つ JSON を吐けば動きます。
+各要素は `file` / `severity` / `category` と、本文（`message` / `title` / `description` のいずれか）を持っていることを期待します。
+本文まで見て同一性を判定するので、**同じファイルに毎回違う指摘が出る場合もブレとして検出します。**
+
+指摘があると非ゼロ終了するツール（多くのリンタがそうです）でも、JSON が読めていれば正常に扱います。
 
 指摘がブレたら、**モデルを疑う前に入力を疑ってください。** 原因はほぼ次の3つです。
 
@@ -156,7 +182,10 @@ ai-rules stability --runs 3 -- your-review-command --format json
 2. 読み込むファイルが実行ごとに変わっている
 3. プロンプトに時刻やランダム要素が入っている
 
-終了コードは 0=安定 / 1=ブレあり / 2=コマンドかJSONの失敗。
+終了コードは 0=安定 / 1=ブレあり / 2=コマンドかJSONの失敗 / **3=測れていない**。
+
+`3` は High/Critical の指摘が1件も出なかった場合です。**これを「安定」と読まないでください。**
+指摘が出る差分に対して実行し直す必要があります。
 
 ---
 
@@ -170,11 +199,12 @@ ai-rules stability --runs 3 -- your-review-command --format json
 
 改行コードです。`.gitattributes` に `*.md text eol=lf` を入れてください。
 
-**Copilot だけ規約が守られない**
+**Copilot で層ごとの規約が効かない**
 
-Copilot の `.github/copilot-instructions.md` には**スコープ機能がありません。**
-全層の規約が1ファイルに集約されるため、ファイル数が増えるほど1行あたりの効力が薄まります。
-Copilot をメインで使うなら `common` を3行以内に絞ってください。
+`.github/instructions/` が使えるのは比較的新しいバージョンです。
+古い環境では `.github/copilot-instructions.md` しか読まれず、そこには共通規約しか入っていません
+（層ごとの規約は `applyTo:` 付きの `instructions/` 側にあります）。
+層の規約まで全体に効かせたいなら、その分は `common` に移してください。
 
 **規約を足したら守られなくなった**
 
@@ -193,10 +223,6 @@ Copilot をメインで使うなら `common` を3行以内に絞ってくださ�
 
 - [AIエージェント駆動開発におけるリポジトリ構造変更と、AIコンテキストの整合性維持の課題](https://zenn.dev/tsutomusaito/articles/2026-05-10-f4e76d86)
 - [AIによるレビュー精度を保つ方法](https://zenn.dev/tsutomusaito/articles/ai-2026-05-11-5b1c0152)
-
-<!-- 旗艦記事の公開後に追記すること:
-- [AIエージェントが「知っているはず」を間違える理由](https://zenn.dev/tsutomusaito/articles/ai-agent-context-design)
-公開前に載せるとリンクが404になる。リポジトリのpushが記事公開より先なので順序に注意。 -->
 
 同じ作者の関連OSS: [`ben-saito/revi`](https://github.com/ben-saito/revi) — 決定論的に制御するAIコードレビューCLI（MIT）
 

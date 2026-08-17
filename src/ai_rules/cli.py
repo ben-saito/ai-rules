@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from . import stability
-from .emit import targets
+from .emit import MARKER, targets
 
 RULES_PATH = Path("ai-rules/rules.yml")
 
@@ -17,9 +17,9 @@ TEMPLATE = """\
 
 # 配布先。使っていないツールは false にする。
 outputs:
-  claude: true    # .claude/rules/<layer>.md      （paths: でスコープ）
-  cursor: false   # .cursor/rules/<layer>.mdc     （globs でスコープ）
-  copilot: false  # .github/copilot-instructions.md（スコープ機能なし。全層を1ファイルに集約）
+  claude: true    # .claude/rules/<layer>.md                     （paths: でスコープ）
+  cursor: false   # .cursor/rules/<layer>.mdc                    （globs でスコープ）
+  copilot: false  # .github/instructions/<layer>.instructions.md （applyTo: でスコープ）
 
 # 全レイヤーに配布される共通規約。
 # 追加するときは、既存の1行を削れないか先に検討すること。
@@ -62,26 +62,85 @@ def cmd_init(_args) -> int:
     return 0
 
 
+def orphans(planned: list) -> list[Path]:
+    """生成マーカーを持つのに、今のマスタからは生成されないファイル。
+
+    レイヤーをリネーム・削除すると旧ファイルが残る。中身は古い規約のままなので、
+    新旧2つの規約が同時にロードされる。放置すると矛盾する指示が両方効く。
+    """
+    planned_paths = {path.resolve() for path, _ in planned}
+    found = []
+    for directory in {path.parent for path, _ in planned}:
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.iterdir()):
+            if not path.is_file() or path.resolve() in planned_paths:
+                continue
+            if MARKER in path.read_text(encoding="utf-8", errors="ignore"):
+                found.append(path)
+    return found
+
+
+def missing_paths(config: dict) -> list[tuple[str, str]]:
+    """rules.yml の path が実在しないレイヤー。
+
+    ディレクトリをリネームするとグロブが一致しなくなるが、これはエラーにならない。
+    規約ファイルは残ったまま、ただ一度も載らなくなる。最も静かに壊れるパターン。
+    """
+    return [
+        (name, layer["path"])
+        for name, layer in config["layers"].items()
+        if not Path(layer["path"]).is_dir()
+    ]
+
+
 def cmd_build(_args) -> int:
-    for path, content in targets(load_config()):
+    config = load_config()
+    planned = targets(config)
+    for path, content in planned:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         print(f"generated: {path}")
+    for path in orphans(planned):
+        path.unlink()
+        print(f"removed: {path}（マスタに対応するレイヤーがありません）")
     return 0
 
 
 def cmd_check(_args) -> int:
-    planned = targets(load_config())
+    config = load_config()
+    planned = targets(config)
+    if not planned:
+        print("生成対象が1つもありません。layers と outputs を確認してください。", file=sys.stderr)
+        return 1
+
     stale = [
         path
         for path, content in planned
         if not path.exists() or path.read_text(encoding="utf-8") != content
     ]
+    left_over = orphans(planned)
+    missing = missing_paths(config)
+
     if stale:
         print("AIコンテキストが古い、または欠落しています:", file=sys.stderr)
         for path in stale:
             print(f"  {path}", file=sys.stderr)
         print("\n`ai-rules build` を実行してコミットしてください", file=sys.stderr)
+    if left_over:
+        print("\nマスタに対応するレイヤーがない生成物が残っています:", file=sys.stderr)
+        for path in left_over:
+            print(f"  {path}", file=sys.stderr)
+        print("古い規約が現在の規約と同時にロードされます。", file=sys.stderr)
+        print("`ai-rules build` で削除されます。", file=sys.stderr)
+    if missing:
+        print("\nrules.yml の path が実在しません:", file=sys.stderr)
+        for name, path in missing:
+            print(f"  {name}: {path}", file=sys.stderr)
+        print("グロブが一致しないため、この層の規約は生成されても一度も適用されません。", file=sys.stderr)
+        print("ディレクトリを移動したなら rules.yml の path を直してください。", file=sys.stderr)
+
+    if stale or left_over or missing:
         return 1
     print(f"OK: {len(planned)} 件の生成物は最新です")
     return 0
