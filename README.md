@@ -4,12 +4,19 @@
 更新漏れを **CIの赤** で検知する CLI です。
 
 ```bash
-pip install ai-rules
+pip install git+https://github.com/ben-saito/ai-rules
 ```
+
+> **⚠️ `pip install ai-rules` は実行しないでください。**
+> PyPI の `ai-rules` は**別の作者の無関係なパッケージ**です。PyPI への公開名は未定です。
 
 ---
 
 ## 先に、これが要らないケースを書きます
+
+**規約の生成そのものは [`dyoshikawa/rulesync`](https://github.com/dyoshikawa/rulesync)（★1.3k）が既に成熟しています。**
+Claude Code / Cursor / Cline / Copilot に対応し、rules だけでなく mcp・commands・subagents・skills・hooks・permissions まで生成します。
+**生成が目的なら、まず rulesync を検討してください。**
 
 **Claude Code には `.claude/rules/` という公式の仕組みがあります。**
 `paths:` フロントマターでディレクトリごとに規約をスコープできる、よくできた機能です。
@@ -101,7 +108,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install ai-rules
+      - run: pip install git+https://github.com/ben-saito/ai-rules
       - run: ai-rules check
 ```
 
